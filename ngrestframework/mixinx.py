@@ -5,7 +5,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 
 from ngpyorient.match import process_filter_args
-from ngpyorient.queryset import NgQuerySet
+from ngpyorient.queryset import NgQuerySet, NgComplexQuerySet
 from ngrestframework.renders import PandasBaseRenderer
 from ngrestframework.serializers import PandasSerializer
 
@@ -47,11 +47,20 @@ class RetrieveModelMixin(object):
             if not results or not len(results):
                 raise NotFound(detail="{} is not found".format(kwargs.values()))
             instance = results[0]
-            serializer = self.get_serializer(instance)
+            serializer = self.get_serializer([instance], many=True)
+
+        elif isinstance(queryset, NgComplexQuerySet):
+            queryset.filter("@rid={}".format(kwargs["rid"]))
+            results = queryset.execute()
+            if not results or not len(results):
+                raise NotFound(detail="{} is not found".format(kwargs.values()))
+            instance = results[0]
+            serializer = self.get_serializer([instance], many=True)
         # get result by record_id from ngrawqueryset
         else:
             if "where" in queryset.raw_query:
-                queryset.raw_query = queryset.raw_query + " and @rid = {}".format(kwargs["rid"])
+                start, end = queryset.raw_query.rsplit("where", 1)
+                queryset.raw_query = start + "where" + " and @rid = {}".format(kwargs["rid"]) + end
             else:
                 queryset.raw_query = queryset.raw_query + " where @rid = {}".format(kwargs["rid"])
 
@@ -113,7 +122,11 @@ class CreateModelMixinWithNone(object):
 
 
 class PandasMixin(object):
+    """for stat with pandas"""
     pandas_serializer_class = PandasSerializer
+
+    def get_pandas_serializer_class(self):
+        return self.pandas_serializer_class
 
     def with_list_serializer(self, cls):
         meta = getattr(cls, 'Meta', object)
@@ -122,7 +135,7 @@ class PandasMixin(object):
 
         class SerializerWithListSerializer(cls):
             class Meta(meta):
-                list_serializer_class = self.pandas_serializer_class
+                list_serializer_class = self.get_pandas_serializer_class()
 
         return SerializerWithListSerializer
 
@@ -144,4 +157,5 @@ class PandasMixin(object):
         if isinstance(renderer, PandasBaseRenderer):
             return self.with_list_serializer(self.serializer_class)
         else:
+            # maybe should raise an exception to notify user that he should use PandasRender instead of normal render
             return self.serializer_class

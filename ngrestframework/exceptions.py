@@ -36,16 +36,17 @@ class NgException(Exception):
         Base class for REST framework exceptions.
         Subclasses should provide `.status_code` and `.default_detail` properties.
         """
-    status_code = status.HTTP_403_FORBIDDEN
+    status_code = status.HTTP_409_CONFLICT
     default_detail = _('A server error occurred.')
     default_code = 'error'
 
-    def __init__(self, detail=None, code=None):
+    def __init__(self, detail=None, code=None, status_code=None):
         if detail is None:
             detail = self.default_detail
         if code is None:
             code = self.default_code
-
+        if status_code:
+            self.status_code = status_code
         self.detail = _get_error_details(detail, code)
 
     def __str__(self):

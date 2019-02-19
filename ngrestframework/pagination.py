@@ -4,18 +4,18 @@ __author__ = 'brad'
 
 from rest_framework.pagination import PageNumberPagination, InvalidPage
 from ngpyorient.paginator import NgpyorientPaginator
-from ngpyorient.queryset import NgQuerySet, NgRawQuerySet
+from ngpyorient.queryset import NgQuerySet, NgRawQuerySet, NgComplexQuerySet
 from rest_framework.exceptions import NotFound
 from django.utils import six
 from rest_framework.response import Response
 from collections import OrderedDict
 
+
 class NgPageNumberPagination(PageNumberPagination):
-
     ngpyorient_paginator_class = NgpyorientPaginator
-    page_size_query_param = "pagesize"
+    page_size_query_param = "page_size"
 
-    page_size = 2
+    page_size = 10
     max_page_size = 5000
 
     def paginate_queryset(self, queryset, request, view=None):
@@ -28,7 +28,7 @@ class NgPageNumberPagination(PageNumberPagination):
             return None
 
         # todo:这里区分是用哪个分页
-        if isinstance(queryset, (NgRawQuerySet, NgQuerySet)):
+        if isinstance(queryset, (NgRawQuerySet, NgQuerySet, NgComplexQuerySet)):
             paginator = self.ngpyorient_paginator_class(queryset, self.real_page_size)
         else:
             paginator = self.django_paginator_class(queryset, self.real_page_size)
@@ -57,6 +57,25 @@ class NgPageNumberPagination(PageNumberPagination):
             ('next', self.get_next_link()),
             ('previous', self.get_previous_link()),
             ('page', self.real_page_number),
-            ('pagesize', self.real_page_size),
+            ('page_size', self.real_page_size),
             ('results', data)
+        ]))
+
+
+class StandardResultsSetPagination(PageNumberPagination):
+    page_size_query_param = "page_size"
+    page_size = 10
+    max_page_size = 5000
+
+    def get_paginated_response(self, data):
+        total_count = self.page.paginator.count
+        page_no = self.request.query_params.get('page', 1)
+        page_size = self.request.query_params.get('page_size', self.page_size)
+        # pagination = dict(totalCount=total_count, pageNo=int(page_no), pageSize=page_size)
+        pagination = dict(total=total_count, page=int(page_no), pagesize=page_size)
+        all_data = dict(pagination=pagination, lists=data)
+
+        return Response(OrderedDict([
+            ('info', 'success'),
+            ('results', all_data)
         ]))

@@ -3,14 +3,22 @@
 """
 import logging
 
-from django.contrib.auth.models import AnonymousUser
-from django.core.exceptions import ImproperlyConfigured
-from django.utils import timezone
+import pytz
 from pandas import DataFrame
 from rest_framework import serializers
+from rest_framework.fields import SkipField
+from rest_framework.relations import PKOnlyObject
 from rest_framework.serializers import Serializer
+from pyorient.otypes import OrientRecord
+
+from utils.common import get_username
 
 logger = logging.getLogger('django')
+
+from collections import OrderedDict
+
+from django.core.exceptions import ImproperlyConfigured
+from django.utils import timezone
 
 
 class NgSerializerWithRid(Serializer):
@@ -27,31 +35,42 @@ class ListAddId(Serializer):
 
 
 class ExtraSerializer:
-    """自动添加一些共同的字段信息, 也是再继承使用"""
+    """自动添加一些共同的字段信息, 或者一些方法,再继承使用"""
+
+    def batch_none_value_filter(self, validated_data, rids):
+        # info:判断是批量修改的情况
+        if (isinstance(rids, str) and rids.count(",")) or (isinstance(rids, (tuple, list)) and len(rids) > 1):
+            for k in validated_data:
+                if validated_data[k] is None or validated_data[k] == "":
+                    validated_data.pop(k)
 
     def extra_create(self, validated_data, model_name=None, name=None):
-        user = self.context['request'].user
-        if isinstance(user, AnonymousUser):
-            username = 'AnonymousUser'
-        else:
-            username = user.alias if user.alias else user.username
-        now = str(timezone.now())
+        username = get_username(self.context['request'].user)
+        # 转换时间为utc时间
+        now = timezone.now().astimezone(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
         save_data = dict([(key, value) for key, value in validated_data.items()])
         save_data.update({'founder': username, 'updater': username, 'create_time': now, 'update_time': now})
         logger.info(u'用户%s创建名称是%s的%s成功' % (username, name, model_name))
         return save_data
 
     def extra_update(self, validated_data, model_name=None, name=None):
-        user = self.context['request'].user
-        if isinstance(user, AnonymousUser):
-            username = 'AnonymousUser'
-        else:
-            username = user.alias if user.alias else user.username
-        now = str(timezone.now())
+        username = get_username(self.context['request'].user)
+        # 转换时间为utc时间
+        now = timezone.now().astimezone(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
+        # info:这一步的目的为了不改变传入的数据结构
         update_data = dict([(key, value) for key, value in validated_data.items()])
         update_data.update({'updater': username, 'update_time': now})
         logger.info(u'用户%s更新名称是%s的%s成功' % (username, name, model_name))
         return update_data
+
+    def extra_update_str(self, old_instance, validated_data):
+        update_str_list = []
+        if isinstance(old_instance, OrientRecord):
+            old_data = old_instance.oRecordData
+            [update_str_list.append("%s由%s修改为%s" % (data, old_data[data], validated_data[data])) for data in
+             validated_data if validated_data[data] != old_data[data]]
+
+        return ", ".join(update_str_list)
 
 
 class NgSerializer(Serializer):
@@ -140,6 +159,36 @@ class NgSerializer(Serializer):
         data.update({"current": current})
         return data
 
+    def to_representation(self, instance):
+        """
+           Object instance -> Dict of primitive datatypes.
+           """
+        ret = OrderedDict()
+        fields = self._readable_fields
+
+        for field in fields:
+            try:
+                attribute = field.get_attribute(instance)
+            except SkipField:
+                continue
+
+            # KEY IS HERE:
+            if attribute in [None]:
+                attribute = ""
+
+            # We skip `to_representation` for `None` values so that fields do
+            # not have to explicitly deal with that case.
+            #
+            # For related fields with `use_pk_only_optimization` we need to
+            # resolve the pk value.
+            check_for_none = attribute.pk if isinstance(attribute, PKOnlyObject) else attribute
+            if check_for_none is None:
+                ret[field.field_name] = None
+            else:
+                ret[field.field_name] = field.to_representation(attribute)
+
+        return ret
+
 
 class PandasSerializer(serializers.ListSerializer):
     """
@@ -173,7 +222,7 @@ class PandasSerializer(serializers.ListSerializer):
     def transform_dataframe(self, dataframe):
         view = self.context.get('view', None)
         if view and hasattr(view, 'transform_dataframe'):
-            return self.context['view'].transform_dataframe(dataframe)
+            return self.context['view'].stat_cost(dataframe)
         return dataframe
 
     @property

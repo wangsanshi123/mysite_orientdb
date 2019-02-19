@@ -12,7 +12,7 @@ from rest_framework.viewsets import GenericViewSet
 from ngpyorient import ng_node, ng_relationship
 from ngpyorient.ng_node import NgNode
 from ngpyorient.ng_relationship import NgRelationship
-from ngpyorient.queryset import NgQuerySet, NgRawQuerySet
+from ngpyorient.queryset import NgQuerySet, NgRawQuerySet, NgComplexQuerySet
 from ngrestframework.mixinx import UpdateModelMixin, DestroyModelMixin, RetrieveModelMixin, CreateModelMixin, \
     UpdateModelMixinWithNone, CreateModelMixinWithNone, PandasMixin
 from ngrestframework.renders import NgRender, PandasJSONRenderer
@@ -41,7 +41,8 @@ class GenericViewSet(GenericViewSet):
         )
 
         queryset = self.queryset
-        if isinstance(queryset, NgQuerySet) or isinstance(queryset, NgRawQuerySet):
+        if isinstance(queryset, NgQuerySet) or isinstance(queryset, NgRawQuerySet) or isinstance(queryset,
+                                                                                                 NgComplexQuerySet):
             # Ensure queryset is re-evaluated on each request.
             queryset = queryset.all()
         return queryset

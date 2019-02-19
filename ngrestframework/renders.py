@@ -1,16 +1,13 @@
 import json
-import os
-from io import StringIO
-from tempfile import mkstemp
 
+from io import StringIO
 from pandas import DataFrame
 from rest_framework import status
 from rest_framework.renderers import BaseRenderer, JSONRenderer
 from rest_framework.status import is_success
 
 from ngpyorient.queryset import NgRawQuerySet
-from ngrestframework.utils import format_data, convert, format_data_new
-import pandas as pd
+from ngrestframework.utils import format_data
 
 RESPONSE_ERROR = (
     "Response data is a %s, not a DataFrame! "
@@ -109,6 +106,34 @@ class PandasJSONRenderer(PandasBaseRenderer):
         )
 
 
+class PandasRendererDirect(PandasJSONRenderer):
+    """pandas render dataframe direct with direct invocation"""
+    format = "json"
+
+    def render(self, data, accepted_media_type=None, renderer_context=None):
+        if not isinstance(data, DataFrame):
+            raise Exception(
+                RESPONSE_ERROR % type(data).__name__
+            )
+
+        name = getattr(self, 'function', "to_%s" % self.format)
+        if not hasattr(data, name):
+            raise Exception("Data frame is missing %s property!" % name)
+
+        self.init_output()
+        args = self.get_pandas_args(data)
+        kwargs = self.get_pandas_kwargs(data, renderer_context)
+        self.render_dataframe(data, name, *args, **kwargs)
+        return self.get_output()
+        pass
+
+    def get_pandas_kwargs(self, data, renderer_context):
+        return {
+            "orient": "records-index",
+            "date_format": "iso",
+        }
+
+
 class NgRender_deprecated(PandasJSONRenderer):
     def render(self, data, accepted_media_type=None, renderer_context=None):
         queryset = renderer_context["view"].get_queryset()
@@ -142,10 +167,18 @@ class NgRender(JSONRenderer):
                     composed_data = {"info": "", "results": {"lists": raw_data}}
         elif action in ['create', 'update', 'destroy'] and is_success(status):
             # 根据返回的结果进行定义
-            composed_data = {
-                "info": "操作成功", "results": json.loads(json_binary_data)} if json_binary_data and len(
-                json_binary_data) > 2 else {
-                "info": "操作成功", "results": {}}
+
+            # Please don't disturb! Thank you.
+            # 应用管理模块对结果做了result,info的处理,返回信息更友好
+            # 请不要随便修改,修改前请核对代码
+            if (json_binary_data and 'results' in json.loads(json_binary_data)
+                    and 'info' in json.loads(json_binary_data)):
+                composed_data = json.loads(json_binary_data)
+            else:
+                composed_data = {
+                    "info": "操作成功", "results": json.loads(json_binary_data)} if json_binary_data and len(
+                    json_binary_data) > 2 else {
+                    "info": "操作成功", "results": {}}
         elif action in ['retrieve']:
             # 根据返回的结果进行定义
             composed_data = {
@@ -155,4 +188,20 @@ class NgRender(JSONRenderer):
         else:
             composed_data = data if data else {"info": "", "results": {}}
 
+        return json.dumps(composed_data)
+
+
+class NgRenderSimple(NgRender):
+    """
+    only do one thing
+    Attention:DO NOT ADD THING ANY MORE
+    """
+
+    def render(self, data, accepted_media_type=None, renderer_context=None):
+        json_binary_data = super().render(data, accepted_media_type, renderer_context)
+        raw_data = json.loads(json_binary_data)
+        if not json_binary_data:
+            composed_data = {"info": "", "results": {"lists": None}}
+        else:
+            composed_data = {"info": "", "results": {"lists": raw_data}}
         return json.dumps(composed_data)

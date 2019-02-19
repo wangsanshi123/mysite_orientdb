@@ -1,5 +1,7 @@
 """this module is specific for NgQueryset of OGM of orientdb"""
 from rest_framework.exceptions import MethodNotAllowed
+from rest_framework.permissions import BasePermission
+from auth_management.models import Permission, UserPermission
 
 
 class DjangoModelPermissions(object):
@@ -60,6 +62,16 @@ class DjangoModelPermissions(object):
         return request.user.has_perms(perms)
 
 
+class NgDjangoModelPermissions(DjangoModelPermissions):
+
+    def get_required_permissions(self, method, model_cls):
+        if method not in self.perms_map:
+            raise MethodNotAllowed(method)
+
+        result = [perm if method == 'GET' else "management__" + perm for perm in self.perms_map[method]]
+        return result
+
+
 class DjangoModelPermissionsStricted(DjangoModelPermissions):
     """strict mode:even when get the permission is required"""
 
@@ -68,3 +80,22 @@ class DjangoModelPermissionsStricted(DjangoModelPermissions):
         return super().has_permission(request, view)
 
     pass
+
+
+class NgPermissions(BasePermission):
+    def has_permission(self, request, view):
+
+        # info:得到类名
+        class_name = view.__class__.__name__
+        permissions = Permission.objects.filter(bac_recognition=class_name).all()
+        # info:通过从权限表里查明是否该是否有对应的权限设定, 再来看用户是否具备该权限,
+        # info:这是粗粒度的, 如果权限表没有则通过先
+        if permissions:
+            u_permissions = UserPermission.objects.filter(permission__in=permissions, user=request.user).all()
+            if not u_permissions:
+                return False
+
+            if not any([u.management for u in u_permissions]) and request.method.lower() in ("put", "delete", "post"):
+                return False
+
+        return True
