@@ -2,16 +2,13 @@
 util for drop all classes
 """
 import os
-
 import django
 from django.conf import settings
-from pyorient import PyOrientSQLParsingException
-
-from ngpyorient.graph import NgGraph
-from ngpyorient.utils import write_error
-
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "mysite_orientdb.settings")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "ops_platform.settings")
 django.setup()
+from pyorient import PyOrientSQLParsingException
+from ngpyorient.graph import NgGraph
+from ngpyorient.utils import write_error, write_info
 from pyorient.ogm import Config
 from ngpyorient.ng_node import NgNode
 from ngpyorient.ng_relationship import NgRelationship
@@ -28,6 +25,7 @@ NgNode.registry.update(NgRelationship.registry)
 
 for value in NgNode.registry.values():
     try:
+        write_info("deleting {}".format(value))
         graph.drop_class_simple(value)
     except PyOrientSQLParsingException as e:
         write_error(e)
